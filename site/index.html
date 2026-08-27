@@ -1,0 +1,613 @@
+<title>Le séisme qui rétrécit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+:root{
+  --ground:#E8EBEE;
+  --surface:#FFFFFF;
+  --surface-2:#F3F5F7;
+  --ink:#0F151B;
+  --muted:#5C6875;
+  --line:#C9D1D9;
+  --line-soft:#DDE3E9;
+  --teal:#0E7C86;
+  --teal-soft:#0E7C8618;
+  --signal:#C2410C;
+  --signal-soft:#C2410C18;
+  --trace:#0E7C86;
+  --shadow:0 1px 2px #0f151b0d,0 8px 24px #0f151b0a;
+
+  --display:'Archivo',system-ui,sans-serif;
+  --body:'IBM Plex Sans',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+
+  --measure:68ch;
+  --pad:clamp(1.25rem,5vw,3rem);
+}
+
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#0B1015;
+    --surface:#131B22;
+    --surface-2:#18222B;
+    --ink:#E3E9EF;
+    --muted:#8695A3;
+    --line:#26333E;
+    --line-soft:#1D2831;
+    --teal:#3FB6C0;
+    --teal-soft:#3FB6C01f;
+    --signal:#F2683F;
+    --signal-soft:#F2683F1f;
+    --trace:#3FB6C0;
+    --shadow:0 1px 2px #0006,0 10px 30px #0004;
+  }
+}
+
+:root[data-theme="dark"]{
+  --ground:#0B1015;
+  --surface:#131B22;
+  --surface-2:#18222B;
+  --ink:#E3E9EF;
+  --muted:#8695A3;
+  --line:#26333E;
+  --line-soft:#1D2831;
+  --teal:#3FB6C0;
+  --teal-soft:#3FB6C01f;
+  --signal:#F2683F;
+  --signal-soft:#F2683F1f;
+  --trace:#3FB6C0;
+  --shadow:0 1px 2px #0006,0 10px 30px #0004;
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  background:var(--ground);
+  color:var(--ink);
+  font-family:var(--body);
+  font-size:1.0625rem;
+  line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;letter-spacing:-.025em}
+h1{font-weight:800;font-size:clamp(2.6rem,7.5vw,5.25rem);line-height:.98}
+h2{font-weight:800;font-size:clamp(1.75rem,3.8vw,2.6rem);line-height:1.08}
+h3{font-weight:700;font-size:1.125rem;line-height:1.3;letter-spacing:-.012em}
+p{margin:0}
+a{color:var(--teal)}
+
+.wrap{max-width:var(--measure);margin-inline:auto;padding-inline:var(--pad)}
+.wide{max-width:1180px;margin-inline:auto;padding-inline:var(--pad)}
+
+.eyebrow{
+  font-family:var(--mono);font-size:.7rem;font-weight:500;
+  letter-spacing:.18em;text-transform:uppercase;color:var(--muted);
+}
+
+/* ---------- hero ---------- */
+.hero{position:relative;padding-block:clamp(3.5rem,9vh,6rem) 0;overflow:hidden}
+.hero-head{display:flex;flex-direction:column;gap:1.4rem}
+.hero h1 .shrink{
+  display:inline-block;color:var(--signal);
+  animation:shrinkPulse 5s ease-in-out infinite;transform-origin:left center;
+}
+@keyframes shrinkPulse{0%,72%,100%{transform:scaleX(1)}84%{transform:scaleX(.86)}}
+
+.lede{font-size:clamp(1.06rem,1.9vw,1.28rem);color:var(--muted);max-width:56ch}
+.lede strong{color:var(--ink);font-weight:600}
+
+.seismo{margin-top:clamp(2rem,5vh,3.25rem);border-block:1px solid var(--line);background:var(--surface)}
+.seismo canvas{display:block;width:100%;height:clamp(180px,26vh,270px)}
+
+.readout{
+  display:flex;flex-wrap:wrap;gap:.5rem 2rem;
+  font-family:var(--mono);font-size:.74rem;color:var(--muted);
+  padding:.7rem var(--pad);border-bottom:1px solid var(--line);
+  background:var(--surface-2);
+}
+.readout b{color:var(--ink);font-weight:500}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;vertical-align:1px;margin-right:.45rem}
+.dot.auto{background:var(--signal)}
+.dot.rev{background:var(--teal)}
+
+/* ---------- sections ---------- */
+section{padding-block:clamp(3.25rem,8vh,5.5rem)}
+.rule{height:1px;background:var(--line-soft);border:0;margin:0}
+.stack{display:flex;flex-direction:column;gap:1.15rem}
+.stack-lg{display:flex;flex-direction:column;gap:2rem}
+
+/* ---------- stat panels ---------- */
+.panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:1px;background:var(--line);border:1px solid var(--line)}
+.panel{background:var(--surface);padding:1.4rem 1.35rem;display:flex;flex-direction:column;gap:.45rem}
+.panel .figure{
+  font-family:var(--display);font-weight:800;font-size:clamp(1.9rem,4vw,2.7rem);
+  line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums;
+}
+.panel .unit{font-size:.9rem;color:var(--muted);font-weight:500;font-family:var(--body);letter-spacing:0}
+.panel .label{font-size:.875rem;color:var(--muted);line-height:1.45}
+.panel.hot .figure{color:var(--signal)}
+.panel.cool .figure{color:var(--teal)}
+
+/* ---------- comparison bars ---------- */
+.bars{display:flex;flex-direction:column;gap:1.35rem;margin-top:.5rem}
+.bar-row{display:flex;flex-direction:column;gap:.5rem}
+.bar-top{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap}
+.bar-name{font-family:var(--mono);font-size:.8rem;letter-spacing:.05em;text-transform:uppercase}
+.bar-val{font-family:var(--display);font-weight:700;font-size:1.05rem;font-variant-numeric:tabular-nums}
+.bar-track{height:12px;background:var(--surface-2);border:1px solid var(--line);position:relative;overflow:hidden}
+.bar-fill{height:100%;width:0;transition:width 1.6s cubic-bezier(.16,1,.3,1)}
+.bar-fill.hot{background:var(--signal)}
+.bar-fill.cool{background:var(--teal)}
+.bar-note{font-size:.82rem;color:var(--muted)}
+
+/* ---------- pipeline ---------- */
+.pipeline{display:grid;gap:1px;background:var(--line);border:1px solid var(--line);grid-template-columns:1fr}
+@media(min-width:760px){.pipeline{grid-template-columns:repeat(3,1fr)}}
+.stage{background:var(--surface);padding:1.5rem 1.4rem;display:flex;flex-direction:column;gap:.7rem;position:relative}
+.stage-n{font-family:var(--mono);font-size:.72rem;letter-spacing:.16em;color:var(--teal)}
+.stage ul{margin:0;padding-left:1.05rem;color:var(--muted);font-size:.9rem;line-height:1.6}
+.stage li{margin-block:.2rem}
+.stage code{font-family:var(--mono);font-size:.82em;color:var(--ink)}
+
+/* ---------- proof ---------- */
+.proof{border:1px solid var(--line);background:var(--surface);overflow:hidden}
+.proof-head{padding:1rem 1.3rem;border-bottom:1px solid var(--line);background:var(--surface-2);font-family:var(--mono);font-size:.78rem;letter-spacing:.05em;color:var(--muted);display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.steps{display:flex;flex-direction:column}
+.step{display:grid;grid-template-columns:auto 1fr auto;gap:1rem;align-items:center;padding:.95rem 1.3rem;border-bottom:1px solid var(--line-soft)}
+.step:last-child{border-bottom:0}
+.step-mark{width:9px;height:9px;border-radius:50%;background:var(--line);flex:none}
+.step.done .step-mark{background:var(--teal)}
+.step.kill .step-mark{background:var(--signal)}
+.step-txt{font-size:.92rem}
+.step-txt em{font-style:normal;color:var(--muted)}
+.step-num{font-family:var(--mono);font-size:1rem;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.verdict{padding:1.1rem 1.3rem;background:var(--teal-soft);border-top:1px solid var(--line);font-family:var(--mono);font-size:.85rem;color:var(--ink)}
+
+/* ---------- traps ---------- */
+.trap{border-left:2px solid var(--line);padding-left:1.4rem;display:flex;flex-direction:column;gap:.75rem}
+.trap.key{border-left-color:var(--signal)}
+.codeblock{
+  font-family:var(--mono);font-size:.8rem;line-height:1.75;
+  background:var(--surface);border:1px solid var(--line);
+  padding:.95rem 1.1rem;overflow-x:auto;white-space:pre;color:var(--ink);
+}
+.codeblock .k{color:var(--signal)}
+.codeblock .c{color:var(--teal)}
+
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);background:var(--surface)}
+th,td{padding:.62rem .9rem;text-align:left;border-bottom:1px solid var(--line-soft)}
+th{font-family:var(--mono);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:500;background:var(--surface-2)}
+td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+tbody tr:last-child td{border-bottom:0}
+.chip{font-family:var(--mono);font-size:.7rem;padding:.14rem .45rem;border:1px solid currentColor;letter-spacing:.04em}
+.chip.hot{color:var(--signal)}
+.chip.cool{color:var(--teal)}
+
+/* ---------- honesty ---------- */
+.honest{background:var(--surface);border:1px solid var(--line);border-top:2px solid var(--signal);padding:1.6rem 1.5rem;display:flex;flex-direction:column;gap:.9rem}
+
+/* ---------- run ---------- */
+.cmd{font-family:var(--mono);font-size:.85rem;background:var(--surface);border:1px solid var(--line);padding:.85rem 1.05rem;overflow-x:auto;white-space:pre;color:var(--ink)}
+.links{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1px;background:var(--line);border:1px solid var(--line)}
+.link{background:var(--surface);padding:.95rem 1.1rem;display:flex;flex-direction:column;gap:.2rem}
+.link .n{font-size:.92rem;font-weight:600}
+.link .u{font-family:var(--mono);font-size:.76rem;color:var(--muted)}
+
+footer{padding-block:2.5rem 3.5rem;color:var(--muted);font-size:.85rem}
+
+/* ---------- reveal ---------- */
+.reveal{opacity:0;transform:translateY(14px);transition:opacity .7s ease,transform .7s cubic-bezier(.16,1,.3,1)}
+.reveal.in{opacity:1;transform:none}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+  .reveal{opacity:1;transform:none}
+}
+
+:focus-visible{outline:2px solid var(--teal);outline-offset:3px}
+</style>
+
+<header class="hero">
+  <div class="wide hero-head">
+    <span class="eyebrow">Datalake Bronze · Silver · Gold — HDFS, Kafka, Spark, Airflow</span>
+    <h1>Le séisme<br>qui <span class="shrink">rétrécit</span></h1>
+    <p class="lede">L'USGS publie une magnitude <strong>en moins de deux minutes</strong>. Un sismologue la révise <strong>soixante-dix-sept jours plus tard</strong>. Entre les deux, la valeur qui déclenche une évacuation a changé.</p>
+  </div>
+
+  <div class="seismo" aria-hidden="true">
+    <canvas id="trace"></canvas>
+  </div>
+  <div class="readout">
+    <span><span class="dot auto"></span>solution automatique <b id="ro-auto">M5.0</b></span>
+    <span><span class="dot rev"></span>après révision <b id="ro-rev">M4.3</b></span>
+    <span>écart <b>−0.7</b></span>
+    <span>délai <b>77 j</b></span>
+  </div>
+</header>
+
+<main>
+
+<section class="wide">
+  <div class="stack-lg reveal">
+    <div class="stack">
+      <span class="eyebrow">Ce que le pipeline établit</span>
+      <h2>17 536 séismes, cinq mesures</h2>
+    </div>
+    <div class="panels">
+      <div class="panel hot">
+        <div class="figure">1,6<span class="unit"> min</span></div>
+        <div class="label">Délai médian avant la première magnitude, publiée par algorithme.</div>
+      </div>
+      <div class="panel cool">
+        <div class="figure">77<span class="unit"> jours</span></div>
+        <div class="label">Délai médian avant que la fiche cesse d'être modifiée.</div>
+      </div>
+      <div class="panel">
+        <div class="figure">1 151</div>
+        <div class="label">Séismes portant la trace d'une solution automatique remplacée — <b>6,6 %</b>.</div>
+      </div>
+      <div class="panel">
+        <div class="figure">89<span class="unit"> %</span></div>
+        <div class="label">Part de l'échelle <code>mb</code>, qui sature à 6,5 et sous-estime au-delà.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section class="wide">
+  <div class="stack-lg reveal">
+    <div class="stack">
+      <span class="eyebrow">Le résultat principal</span>
+      <h2>Deux régimes de vérité</h2>
+      <p class="lede">La magnitude qui déclenche une décision et celle qui fait foi ne sont pas séparées par une marge d'erreur. Elles sont séparées par un facteur trente mille.</p>
+    </div>
+
+    <div class="bars" id="bars">
+      <div class="bar-row">
+        <div class="bar-top">
+          <span class="bar-name">Solution automatique</span>
+          <span class="bar-val">1,6 min</span>
+        </div>
+        <div class="bar-track"><div class="bar-fill hot" data-w="0.4"></div></div>
+        <p class="bar-note">Calculée sur les premières stations qui ont enregistré la secousse.</p>
+      </div>
+      <div class="bar-row">
+        <div class="bar-top">
+          <span class="bar-name">Fiche définitive</span>
+          <span class="bar-val">110 563 min</span>
+        </div>
+        <div class="bar-track"><div class="bar-fill cool" data-w="100"></div></div>
+        <p class="bar-note">Médiane sur 17 528 séismes révisés. Le champ <code>updated</code> marque la dernière modification, quelle qu'en soit la cause : c'est une borne supérieure du temps de révision.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section class="wide">
+  <div class="stack-lg reveal">
+    <div class="stack">
+      <span class="eyebrow">Les pièges</span>
+      <h2>Ce qui casse sans lever d'erreur</h2>
+    </div>
+
+    <div class="trap key stack">
+      <h3>L'identité d'un séisme change au fil du temps</h3>
+      <p>La solution automatique porte un identifiant <code>usauto…</code>, la solution révisée un identifiant <code>us…</code>. Même séisme, deux noms.</p>
+      <div class="codeblock">us6000thra   ids = ['<span class="k">usauto</span>6000thra', '<span class="c">us</span>6000thra']
+             sources = ,<span class="k">usauto</span>,<span class="c">us</span>,</div>
+      <p>Joindre le flux et le catalogue sur <code>id</code> ferait disparaître la révision : le séisme apparaîtrait comme deux événements distincts — une alerte évaporée, un événement révisé surgi de nulle part. C'est exactement la mesure que ce projet produit. <strong>1 151 séismes sont concernés, et pour tous l'identifiant a changé.</strong></p>
+      <p class="bar-note">La clé de jointure est l'intersection des ensembles <code>ids</code>, jamais <code>id</code>.</p>
+    </div>
+
+    <div class="trap stack">
+      <h3>Six échelles qui ne mesurent pas la même chose</h3>
+      <p>Une M4,9 <code>ml</code> et une M4,9 <code>mww</code> ne décrivent pas le même phénomène physique.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Famille</th><th>Échelle</th><th class="num">Séismes</th><th class="num">Sature à</th><th class="num">Max observé</th></tr></thead>
+          <tbody>
+            <tr><td>ondes de volume</td><td><code>mb</code></td><td class="num">15 614</td><td class="num">6,5</td><td class="num">6,3</td></tr>
+            <tr><td>moment</td><td><code>mww</code></td><td class="num">1 437</td><td class="num">—</td><td class="num">8,8</td></tr>
+            <tr><td>moment</td><td><code>mwr</code></td><td class="num">347</td><td class="num">—</td><td class="num">5,2</td></tr>
+            <tr><td>locale</td><td><code>ml</code></td><td class="num">74</td><td class="num">6,5</td><td class="num">5,85</td></tr>
+            <tr><td>durée</td><td><code>md</code></td><td class="num">30</td><td class="num">5,0</td><td class="num">4,55</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>Nous ne convertissons pas.</strong> Les formules entre échelles sont régionales et empiriques : une relation calibrée en Californie ne vaut pas en Indonésie. Appliquer une formule universelle produirait des nombres d'apparence rigoureuse et sans fondement. La couche Silver <em>qualifie</em> chaque mesure — famille, seuil de saturation — au lieu de la transformer.</p>
+    </div>
+
+    <div class="trap stack">
+      <h3>Le piège annoncé qui n'existait pas</h3>
+      <p>Le cahier des charges annonçait des réseaux déclarant le même séisme séparément. Vérification faite sur 252 événements : <strong>aucun alias n'apparaît comme événement distinct</strong>. L'USGS fusionne déjà côté serveur. Construire une table sur ce phénomène aurait produit une page vide — ou pire, un artefact.</p>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section class="wide">
+  <div class="stack-lg reveal">
+    <div class="stack">
+      <span class="eyebrow">Architecture</span>
+      <h2>Trois couches, trois responsabilités</h2>
+      <p class="lede">Chaque étage lit le précédent et n'écrit que dans le suivant. Les DAG sont chaînés par <em>Datasets</em> Airflow : une seule impulsion cascade jusqu'au bout, sans calendrier partagé.</p>
+    </div>
+
+    <div class="pipeline">
+      <div class="stage">
+        <span class="stage-n">01 — BRONZE</span>
+        <h3>Le brut, tel quel</h3>
+        <ul>
+          <li>Flux USGS chaque minute → Kafka → Spark Structured Streaming</li>
+          <li>Catalogue mensuel en lots, avec marqueur <code>_SUCCESS</code> horodaté et haché</li>
+          <li>GeoJSON conservé sans transformation</li>
+          <li>Partitionné sur la date d'<em>ingestion</em>, immuable par construction</li>
+        </ul>
+      </div>
+      <div class="stage">
+        <span class="stage-n">02 — SILVER</span>
+        <h3>Versionné, jamais écrasé</h3>
+        <ul>
+          <li>Identité résolue par intersection des <code>ids</code></li>
+          <li>Magnitudes qualifiées : famille, seuil de saturation</li>
+          <li>Une ligne par version, <code>valid_from</code> / <code>valid_to</code></li>
+          <li>Delta Lake pour les commits atomiques</li>
+        </ul>
+      </div>
+      <div class="stage">
+        <span class="stage-n">03 — GOLD</span>
+        <h3>Cinq tables, lisibles telles quelles</h3>
+        <ul>
+          <li><code>revision_history</code> · <code>identity_history</code></li>
+          <li><code>alert_reliability</code> · <code>magnitude_scales</code></li>
+          <li><code>review_lag</code></li>
+          <li>Parquet nu, lu par Pandas sans Spark</li>
+        </ul>
+      </div>
+    </div>
+    <p class="bar-note">Delta là où le problème est dur, Parquet là où la simplicité est exigée : un <code>read.parquet</code> sur un répertoire Delta renverrait les versions supprimées.</p>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section class="wide">
+  <div class="stack-lg reveal">
+    <div class="stack">
+      <span class="eyebrow">La preuve</span>
+      <h2>Tuer un DAG en plein vol</h2>
+      <p class="lede">L'exigence la plus soulignée du cahier des charges : relancer sans dupliquer. Une phrase dans un fichier ne vaut rien. Une manipulation qu'un correcteur rejoue vaut tout.</p>
+    </div>
+
+    <div class="proof">
+      <div class="proof-head">
+        <span>scripts/prove_replay.sh</span>
+        <span>marqueurs <code>_SUCCESS</code> dans HDFS</span>
+      </div>
+      <div class="steps">
+        <div class="step done"><span class="step-mark"></span><span class="step-txt">Table rase sur la couche Bronze <em>— on repart de rien</em></span><span class="step-num">0</span></div>
+        <div class="step kill"><span class="step-mark"></span><span class="step-txt">Airflow tué en plein vol <em>— arrêt brutal du conteneur</em></span><span class="step-num">5</span></div>
+        <div class="step done"><span class="step-mark"></span><span class="step-txt">Redémarrage et relance <em>— les 7 lots manquants sont repris</em></span><span class="step-num">12</span></div>
+        <div class="step done"><span class="step-mark"></span><span class="step-txt">Second rejeu sur un lac complet <em>— rien à faire, rien de refait</em></span><span class="step-num">12</span></div>
+      </div>
+      <div class="verdict">12 462 374 octets avant le rejeu. 12 462 374 octets après. À l'octet près.</div>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section class="wide">
+  <div class="stack-lg reveal">
+    <div class="stack">
+      <span class="eyebrow">Trois bugs silencieux, trouvés dans notre propre code</span>
+      <h2>Le projet s'est appliqué à lui-même</h2>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Symptôme</th><th>Cause</th><th>Ce qui aurait été publié</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>"events": 0</code> sur un lot de 800 Ko</td>
+            <td>L'endpoint FDSN ne renvoie pas <code>metadata.count</code>, contrairement aux flux <code>summary</code></td>
+            <td>Un marqueur d'intégrité affirmant zéro événement</td>
+          </tr>
+          <tr>
+            <td>17 526 lignes lues pour 12 fichiers</td>
+            <td><code>wholetext</code> sans effet, et la réponse FDSN contient des retours à la ligne</td>
+            <td>Un Silver à 10 séismes au lieu de 17 536</td>
+          </tr>
+          <tr>
+            <td>Tâche finale sautée 6 fois sur 8</td>
+            <td>Un <code>expand</code> vide fait sauter l'aval : le Dataset ne s'émettait jamais</td>
+            <td>Un pipeline qui s'arrête tout seul au deuxième jour</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="bar-note">Aucun des trois ne levait d'erreur. C'est la classe de panne que ce projet mesure chez l'USGS — et elle s'était glissée chez nous. Les trois sont documentés dans <code>DECISIONS.md</code> plutôt que tus.</p>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section class="wide">
+  <div class="stack-lg reveal">
+    <div class="honest">
+      <span class="eyebrow">Ce que nous refusons de publier</span>
+      <h3>Le seuil d'alerte optimal n'est pas encore mesurable</h3>
+      <p>Il exige d'observer le même séisme en version automatique <em>puis</em> révisée. Seul le flux accumulé le permet, et il tourne depuis peu : <strong>deux cas</strong>.</p>
+      <p>La table existe, sa méthode est écrite, son échantillon grandit à chaque heure d'écoute. Le carnet teste la taille de l'échantillon et affiche un avertissement au lieu de tracer une courbe.</p>
+      <p><strong>Un taux de fausse alerte calculé sur deux événements ne serait pas un résultat — ce serait une illusion de résultat.</strong> C'est le travers même que ce projet dénonce ailleurs.</p>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section class="wide">
+  <div class="stack-lg reveal">
+    <div class="stack">
+      <span class="eyebrow">Rejouer le projet</span>
+      <h2>Deux commandes</h2>
+    </div>
+    <div class="cmd">docker compose up -d
+make bronze</div>
+    <p class="bar-note">Neuf services : HDFS, Kafka en KRaft, Spark standalone, Airflow en LocalExecutor, Postgres, le producteur USGS, le job de streaming et le carnet. Empreinte mesurée au repos : <strong>2,78 Gio</strong> sur 11,37 alloués à Docker.</p>
+    <div class="links">
+      <div class="link"><span class="n">Carnet de restitution</span><span class="u">localhost:8889</span></div>
+      <div class="link"><span class="n">Airflow</span><span class="u">localhost:8099</span></div>
+      <div class="link"><span class="n">HDFS</span><span class="u">localhost:9871</span></div>
+      <div class="link"><span class="n">Spark master</span><span class="u">localhost:8097</span></div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<hr class="rule">
+<footer class="wide">
+  <p>Sources : USGS Earthquake Hazards Program — flux <code>all_hour.geojson</code> et API FDSN <code>event/1/query</code>. Aucune clé, aucun quota. Chiffres mesurés sur le catalogue 2025, magnitude ≥ 4, et sur le flux temps réel accumulé.</p>
+</footer>
+
+<script>
+(function(){
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ----- seismogram: draws the thesis, an automatic reading revised down ----- */
+  const canvas = document.getElementById('trace');
+  const ctx = canvas.getContext('2d');
+  let W = 0, H = 0, dpr = 1;
+
+  function palette(){
+    const s = getComputedStyle(document.documentElement);
+    return {
+      trace: s.getPropertyValue('--trace').trim(),
+      signal: s.getPropertyValue('--signal').trim(),
+      line: s.getPropertyValue('--line').trim(),
+      muted: s.getPropertyValue('--muted').trim(),
+      ink: s.getPropertyValue('--ink').trim()
+    };
+  }
+
+  function resize(){
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = canvas.clientWidth; H = canvas.clientHeight;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  /* deterministic pseudo-noise so the trace is stable across redraws */
+  function noise(i){
+    const x = Math.sin(i * 12.9898) * 43758.5453;
+    return (x - Math.floor(x)) * 2 - 1;
+  }
+
+  const EVENT_AT = 0.42;      /* where the quake hits, as a fraction of width */
+  const REVISED_AT = 0.72;    /* where the revision lands */
+
+  function amplitude(t){
+    if (t < EVENT_AT) return 0.055 * noise(t * 900);
+    const since = t - EVENT_AT;
+    const peak = t < REVISED_AT ? 1.0 : 0.62;      /* M5.0 then M4.3 */
+    const decay = Math.exp(-since * 6.5);
+    const carrier = Math.sin(since * 190) * 0.6 + Math.sin(since * 71) * 0.4;
+    return peak * decay * carrier + 0.05 * noise(t * 900);
+  }
+
+  function draw(progress){
+    const c = palette();
+    ctx.clearRect(0, 0, W, H);
+    const mid = H / 2;
+
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, mid + .5); ctx.lineTo(W, mid + .5); ctx.stroke();
+
+    ctx.setLineDash([2, 6]); ctx.globalAlpha = .5;
+    [0.25, 0.75].forEach(f => {
+      ctx.beginPath(); ctx.moveTo(0, H * f + .5); ctx.lineTo(W, H * f + .5); ctx.stroke();
+    });
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+
+    const end = W * progress;
+    const scale = H * 0.40;
+
+    ctx.lineWidth = 1.4; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath();
+    let started = false;
+    for (let x = 0; x <= end; x += 1){
+      const t = x / W;
+      const y = mid - amplitude(t) * scale;
+      if (!started){ ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+      if (t >= REVISED_AT && ctx.strokeStyle !== c.trace){
+        ctx.strokeStyle = c.signal; ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.strokeStyle = c.trace;
+      }
+    }
+    ctx.strokeStyle = progress > REVISED_AT ? c.trace : c.signal;
+    ctx.stroke();
+
+    if (progress > EVENT_AT){
+      ctx.fillStyle = c.signal; ctx.globalAlpha = .85;
+      ctx.fillRect(W * EVENT_AT, mid - scale - 10, 1, scale * 2 + 20);
+      ctx.globalAlpha = 1;
+      ctx.font = '500 11px "IBM Plex Mono", monospace';
+      ctx.fillText('T+2 min  ·  M5.0 automatique', W * EVENT_AT + 8, 18);
+    }
+    if (progress > REVISED_AT){
+      ctx.fillStyle = c.trace; ctx.globalAlpha = .85;
+      ctx.fillRect(W * REVISED_AT, mid - scale - 10, 1, scale * 2 + 20);
+      ctx.globalAlpha = 1;
+      ctx.font = '500 11px "IBM Plex Mono", monospace';
+      ctx.fillText('T+77 j  ·  M4.3 révisée', W * REVISED_AT + 8, H - 10);
+    }
+  }
+
+  let raf = null;
+  function animate(){
+    if (raf) cancelAnimationFrame(raf);
+    if (reduced){ draw(1); return; }
+    const started = performance.now();
+    const span = 2600;
+    const tick = now => {
+      const p = Math.min((now - started) / span, 1);
+      draw(p * p * (3 - 2 * p));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+  }
+
+  resize(); animate();
+  let rt = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(rt);
+    rt = setTimeout(() => { resize(); draw(1); }, 150);
+  });
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => draw(1));
+
+  /* ----- scroll reveal + bar growth ----- */
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (!e.isIntersecting) return;
+      e.target.classList.add('in');
+      e.target.querySelectorAll('.bar-fill').forEach((el, i) => {
+        setTimeout(() => { el.style.width = el.dataset.w + '%'; }, 220 + i * 260);
+      });
+      io.unobserve(e.target);
+    });
+  }, { threshold: 0.15, rootMargin: '0px 0px -8% 0px' });
+
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+})();
+</script>

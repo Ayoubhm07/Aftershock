@@ -1,0 +1,6 @@
+requests==2.32.3
+pandas==2.2.3
+pyarrow==17.0.0
+matplotlib==3.9.2
+seaborn==0.13.2
+jupyterlab==4.2.5

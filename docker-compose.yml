@@ -1,0 +1,273 @@
+name: seisme
+
+x-hadoop-env: &hadoop-env
+  CORE-SITE.XML_fs.defaultFS: hdfs://namenode:8020
+  HDFS-SITE.XML_dfs.replication: "1"
+  HDFS-SITE.XML_dfs.namenode.rpc-bind-host: 0.0.0.0
+  HDFS-SITE.XML_dfs.namenode.http-bind-host: 0.0.0.0
+  HDFS-SITE.XML_dfs.datanode.use.datanode.hostname: "true"
+  HDFS-SITE.XML_dfs.client.use.datanode.hostname: "true"
+  HDFS-SITE.XML_dfs.permissions.enabled: "false"
+
+x-lake-env: &lake-env
+  HDFS_URI: hdfs://namenode:8020
+  WEBHDFS_URL: http://namenode:9870
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  TOPIC_QUAKES: quakes_live
+  SPARK_MASTER_URL: spark://spark-master:7077
+  SPARK_MASTER_UI: http://spark-master:8080
+  PYTHONUNBUFFERED: "1"
+
+services:
+
+  namenode:
+    image: apache/hadoop:3.4.1
+    container_name: seisme-namenode
+    hostname: namenode
+    user: root
+    environment: *hadoop-env
+    command:
+      - /bin/bash
+      - -c
+      - |
+        if [ ! -d /tmp/hadoop-root/dfs/name/current ]; then
+          hdfs namenode -format -force -nonInteractive
+        fi
+        exec hdfs namenode
+    ports:
+      - "${HDFS_UI_PORT:-9871}:9870"
+    volumes:
+      - namenode-data:/tmp/hadoop-root/dfs/name
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfsadmin -report >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+
+  datanode:
+    image: apache/hadoop:3.4.1
+    container_name: seisme-datanode
+    hostname: datanode
+    user: root
+    environment: *hadoop-env
+    command: ["hdfs", "datanode"]
+    depends_on:
+      namenode:
+        condition: service_healthy
+    volumes:
+      - datanode-data:/tmp/hadoop-root/dfs/data
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfsadmin -report 2>/dev/null | grep -q 'Live datanodes (1)'"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: seisme-kafka
+    hostname: kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      CLUSTER_ID: 7Qm2xVfLTBСqXn9pLwKdRA
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_HEAP_OPTS: -Xmx512m -Xms512m
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 15s
+
+  spark-master:
+    build:
+      context: .
+      dockerfile: docker/spark/Dockerfile
+    image: seisme-spark:latest
+    container_name: seisme-spark-master
+    hostname: spark-master
+    command: >
+      /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+      --host spark-master --port 7077 --webui-port 8080
+    ports:
+      - "${SPARK_UI_PORT:-8097}:8080"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys,json; sys.exit(0 if json.loads(urllib.request.urlopen('http://localhost:8080/json/',timeout=3).read())['status']=='ALIVE' else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  spark-worker:
+    image: seisme-spark:latest
+    container_name: seisme-spark-worker
+    hostname: spark-worker
+    depends_on:
+      spark-master:
+        condition: service_healthy
+      datanode:
+        condition: service_healthy
+    command: >
+      /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker
+      spark://spark-master:7077
+      --cores ${SPARK_WORKER_CORES:-6} --memory ${SPARK_WORKER_MEMORY:-5G}
+      --webui-port 8081
+    ports:
+      - "${SPARK_WORKER_UI_PORT:-8098}:8081"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys,json; sys.exit(0 if json.loads(urllib.request.urlopen('http://spark-master:8080/json/',timeout=3).read())['aliveworkers']>0 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  quake-producer:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    image: seisme-app:latest
+    container_name: seisme-quake-producer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      <<: *lake-env
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-60}
+    command: ["python", "-m", "src.ingest.stream_producer"]
+    restart: unless-stopped
+
+  stream-to-bronze:
+    image: seisme-spark:latest
+    container_name: seisme-stream-to-bronze
+    hostname: stream-to-bronze
+    depends_on:
+      quake-producer:
+        condition: service_started
+      spark-worker:
+        condition: service_healthy
+    environment:
+      <<: *lake-env
+      SPARK_DRIVER_HOST: stream-to-bronze
+      CORES_MAX: ${STREAM_CORES:-2}
+      EXECUTOR_MEMORY: ${STREAM_EXECUTOR_MEMORY:-1g}
+      CHECKPOINT_ROOT: hdfs://namenode:8020/checkpoints
+      PROGRESS_PORT: "8090"
+    command: ["python3", "-m", "src.ingest.stream_to_bronze"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8090',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    restart: always
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: seisme-postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  airflow:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    image: seisme-airflow:latest
+    container_name: seisme-airflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+      spark-master:
+        condition: service_healthy
+    environment:
+      <<: *lake-env
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__PARALLELISM: "4"
+      AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: "2"
+      AIRFLOW__SCHEDULER__CATCHUP_BY_DEFAULT: "false"
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.session
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_USER:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_PASSWORD:-admin}
+    ports:
+      - "${AIRFLOW_PORT:-8099}:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - airflow-logs:/opt/airflow/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - ${DOCKER_GID:-0}
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        airflow db migrate
+        airflow users create           --username "$${_AIRFLOW_WWW_USER_USERNAME}"           --password "$${_AIRFLOW_WWW_USER_PASSWORD}"           --firstname seisme --lastname lake --role Admin --email admin@local           2>/dev/null || true
+        airflow webserver --port 8080 &
+        exec airflow scheduler
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+
+  notebook:
+    build:
+      context: .
+      dockerfile: docker/notebook/Dockerfile
+    image: seisme-notebook:latest
+    container_name: seisme-notebook
+    depends_on:
+      namenode:
+        condition: service_healthy
+    environment:
+      <<: *lake-env
+    ports:
+      - "${NOTEBOOK_PORT:-8889}:8888"
+    volumes:
+      - ./notebooks:/opt/app/notebooks
+      - ./src:/opt/app/src
+    command:
+      - jupyter
+      - lab
+      - --ip=0.0.0.0
+      - --port=8888
+      - --no-browser
+      - --allow-root
+      - --ServerApp.token=
+      - --ServerApp.password=
+      - --ServerApp.root_dir=/opt/app
+
+volumes:
+  namenode-data:
+  datanode-data:
+  kafka-data:
+  postgres-data:
+  airflow-logs:
