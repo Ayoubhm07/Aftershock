@@ -4,3 +4,10 @@ __pycache__/
 *.py[cod]
 .env
 logs/
+chain.log
+
+# la page construite EST le livrable : elle est suivie exprès,
+# pour qu'un correcteur sans Docker puisse l'ouvrir.
+.ipynb_checkpoints/
+witness.log
+*.log

@@ -20,6 +20,7 @@ DATASET_TABLE = f"{GOLD_ROOT}/magnitude_revision"
 CURVE_TABLE = f"{GOLD_ROOT}/alert_curve"
 SCALES_TABLE = f"{GOLD_ROOT}/magnitude_scales"
 IDENTITY_TABLE = f"{GOLD_ROOT}/identity_history"
+WITNESS_TABLE = f"{GOLD_ROOT}/human_witness"
 REPORT_PATH = f"{GOLD_ROOT}/model_report/report.json"
 BUNDLE_PATH = f"{GOLD_ROOT}/site_bundle.json"
 
@@ -98,6 +99,35 @@ def family_breakdown(dataset: DataFrame) -> list[dict]:
     ).orderBy(F.desc("seismes")).limit(20))
 
 
+def witness_summary(witness: DataFrame | None) -> dict | None:
+    if witness is None:
+        return None
+
+    heard = witness.filter("has_witness")
+    comparable = heard.filter("intensity_gap IS NOT NULL")
+
+    by_witness = rows(witness.groupBy("has_witness").agg(
+        F.count("*").alias("seismes"),
+        F.round(F.avg(F.col("moved_up").cast("int")) * 100, 1).alias("pct_hausse"),
+        F.round(F.avg(F.col("moved_down").cast("int")) * 100, 1).alias("pct_baisse"),
+        F.round(F.avg("shift_abs"), 3).alias("ecart_absolu_moyen"),
+    ).orderBy("has_witness"))
+
+    by_louder = rows(comparable.groupBy("witness_louder").agg(
+        F.count("*").alias("seismes"),
+        F.round(F.avg(F.col("moved_up").cast("int")) * 100, 1).alias("pct_hausse"),
+        F.round(F.avg("shift"), 3).alias("ecart_moyen"),
+        F.round(F.avg("intensity_gap"), 2).alias("ecart_intensite"),
+    ).orderBy("witness_louder")) if comparable.count() >= 10 else []
+
+    return {
+        "seismes": witness.count(),
+        "avec_temoins": heard.count(),
+        "par_temoignage": by_witness,
+        "par_ressenti": by_louder,
+    }
+
+
 def main() -> int:
     try:
         settings = LakeSettings.from_environment()
@@ -119,6 +149,7 @@ def main() -> int:
     curve = read_optional(session, f"{base}{CURVE_TABLE}", "parquet")
     scales = read_optional(session, f"{base}{SCALES_TABLE}", "parquet")
     identity = read_optional(session, f"{base}{IDENTITY_TABLE}", "parquet")
+    witness = read_optional(session, f"{base}{WITNESS_TABLE}", "parquet")
 
     fs = WebHdfs(settings.webhdfs_url)
     try:
@@ -132,6 +163,7 @@ def main() -> int:
                         "first_magnitude", "first_magnitude_type",
                         "first_contributor", "first_station_count",
                         "first_azimuthal_gap", "first_minutes_since_quake",
+                        "first_latitude", "first_longitude", "first_depth_km",
                         "final_magnitude", "final_magnitude_type",
                         "shift", "shift_abs", "direction", "scale_changed",
                         "version_count", "review_delay_minutes")
@@ -147,6 +179,7 @@ def main() -> int:
         "seismes": rows(featured),
         "chronologies": timelines(versions, keys),
         "modele": model_report,
+        "temoin_humain": witness_summary(witness),
     }
 
     payload = json.dumps(bundle, ensure_ascii=False, separators=(",", ":"))
@@ -159,6 +192,7 @@ def main() -> int:
           f"{sum(len(v) for v in bundle['chronologies'].values())} versions")
     print(f"  courbe : {len(bundle['courbe_alerte'])} seuils")
     print(f"  modele : {'present' if model_report else 'absent'}")
+    print(f"  temoin : {'present' if bundle['temoin_humain'] else 'absent'}")
     print("-" * 70)
 
     session.stop()

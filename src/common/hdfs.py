@@ -64,6 +64,23 @@ class WebHdfs:
         return [e["pathSuffix"]
                 for e in response.json()["FileStatuses"]["FileStatus"]]
 
+    def content_summary(self, path: str) -> dict:
+        """Un seul appel pour le nombre de fichiers et les octets d'une
+        arborescence. Compter en descendant recursivement coute une requete
+        HTTP par entree, ce qui rend toute sonde periodique inutilisable."""
+        response = call(requests.get, f"summary {path}",
+                        self._url(path, "GETCONTENTSUMMARY"),
+                        timeout=DEFAULT_TIMEOUT)
+        if response.status_code == 404:
+            return {"fichiers": 0, "repertoires": 0, "octets": 0}
+        self._check(response, f"summary {path}")
+        payload = response.json()["ContentSummary"]
+        return {
+            "fichiers": payload.get("fileCount", 0),
+            "repertoires": payload.get("directoryCount", 0),
+            "octets": payload.get("length", 0),
+        }
+
     def size(self, path: str) -> int:
         response = self._check(
             call(requests.get, f"stat {path}", self._url(path, "GETFILESTATUS"),

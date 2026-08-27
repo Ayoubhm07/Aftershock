@@ -1,79 +1,133 @@
-# Le séisme qui rétrécit
+# AFTERSHOCK — le séisme qui rétrécit
 
-Datalake **Bronze → Silver → Gold** sur HDFS, alimenté par deux sources USGS —
-un flux temps réel via Kafka et un catalogue historique en lots — orchestré de
-bout en bout par Airflow.
+Datalake **Bronze → Silver → Gold** sur HDFS, alimenté par **trois** sources
+USGS — un flux temps réel via Kafka, un catalogue historique en lots, et
+l'historique des versions supersédées — orchestré par Airflow, prolongé par un
+modèle MLlib et une application web autonome.
 
 ```bash
 docker compose up -d
-make bronze
+make bronze      # les lots mensuels du catalogue
+make versions    # l'historique des versions — long, ne rien lancer en parallèle
+make chain       # Silver -> Gold -> modèle -> bundle de restitution
+make site        # injecte le bundle dans site/aftershock.html
 ```
 
-Puis **http://localhost:8889** pour le carnet de restitution.
+**http://localhost:8889** pour le carnet · `site/aftershock.html` pour
+l'application.
 
 ---
 
 ## Le problème métier
 
-Quand un séisme se produit, l'USGS publie en moins de deux minutes une magnitude
-calculée **automatiquement** par un algorithme, à partir des premières stations
-qui ont enregistré la secousse. Cette valeur déclenche des alertes tsunami, des
-évacuations, des mobilisations de secours.
+Quand un séisme se produit, l'USGS publie une magnitude calculée
+**automatiquement**, à partir des premières stations qui ont enregistré la
+secousse. Cette valeur déclenche des alertes tsunami, des évacuations, des
+mobilisations de secours.
 
 Des heures — souvent des semaines — plus tard, un sismologue **révise** cette
-magnitude avec l'ensemble des enregistrements disponibles. Elle change. Une M5,0
-automatique peut devenir M4,3, ou M5,6.
+magnitude avec l'ensemble des enregistrements disponibles. Elle change. Une M3,60
+annoncée à Takotna, en Alaska, est devenue **M5,20** ; une M6,30 au large du
+Kamtchatka est retombée à **M5,30**.
 
 Ce projet mesure cet écart, explique d'où il vient, et en tire un seuil d'alerte
-défendable : à partir de quelle magnitude automatique faut-il déclencher, en
+défendable : à partir de quelle magnitude annoncée faut-il déclencher, en
 acceptant quel taux de fausse alerte ?
+
+### Une correction que nous devons au jury
+
+Une version antérieure de ce README affirmait que « personne n'archive l'écart,
+parce que chaque version écrase la précédente ». **C'est faux, et la
+vérification nous l'a montré.** Le paramètre `includesuperseded=true` de
+l'endpoint FDSN ouvre l'historique complet :
+
+| Requête sur `us7000pwpu` | Versions d'origine | Poids |
+|---|---|---|
+| `query?eventid=X&format=geojson` | 3 | 58 Ko |
+| `query?eventid=X&includesuperseded=true` | **10** | **309 Ko** |
+
+Ce qui reste vrai est plus solide : l'archive **n'est consultable qu'un séisme à
+la fois, en connaissant son identifiant à l'avance, au prix de 309 Ko**. Elle
+n'est ni dans les flux temps réel, ni dans l'endpoint de masse, ni jointe à quoi
+que ce soit. Elle est **archivée mais inexploitable**.
+
+C'est ce qu'un lac corrige — et c'est cette troisième source qui rend le modèle
+possible.
 
 ## Ce que le pipeline établit
 
-Sur **17 536 séismes** du catalogue 2025 et un flux temps réel accumulé en
-continu :
+Sur **17 526 séismes** du catalogue 2025, **2 128** dont l'historique complet
+des versions a été récolté, et un flux temps réel accumulé en continu :
 
 | Constat | Chiffre mesuré |
 |---|---|
-| Délai de publication d'une solution automatique | **1,6 à 3,5 minutes** (médiane) |
-| Délai de stabilisation de la fiche définitive | **~110 000 minutes, soit 77 jours** (médiane) |
+| Versions successives archivées | **7 939** pour 2 128 séismes |
+| Séismes dont la magnitude bouge entre deux versions | **735 (34,5 %)** |
+| Écart maximal observé | **+1,60** (M3,60 → M5,20, Takotna, Alaska) |
+| Délai médian de la première solution archivée | **17,8 minutes** |
+| Délai médian avant stabilisation de la fiche | **75,1 jours** |
 | Séismes portant la trace d'une solution automatique remplacée | **1 151 (6,6 %)** |
 | … dont l'identifiant retenu a changé depuis | **1 151, soit la totalité** |
 | Part de l'échelle `mb`, qui sature à 6,5 | **89 %** des séismes M≥4 |
+
+### Deux délais qui ne mesurent pas la même chose
+
+Une version antérieure de ce README annonçait « 1,6 à 3,5 minutes » pour la
+publication d'une solution automatique. Ce chiffre venait de la table
+`review_lag`, qui mesure l'écart entre l'instant du séisme et le champ `updated`
+des fiches vues dans le flux — donc **la fraîcheur d'une fiche déjà publiée**.
+
+La récolte de l'historique donne une autre mesure, plus exigeante : l'écart
+entre le séisme et le **premier produit `origin` que l'USGS a conservé**, soit
+**17,8 minutes de médiane** (min 2,9 · max 66,9).
+
+Les deux sont exacts et ne se contredisent pas ; ils ne répondent pas à la même
+question. Le second est celui qui compte pour l'alerte, et c'est celui que nous
+retenons désormais.
 
 ---
 
 ## Architecture
 
 ```
-   USGS all_hour.geojson  ──►  Kafka  ──►  Spark Structured Streaming
-        (chaque minute)         quakes_live              │
-                                                         ▼
-   USGS FDSN query  ─────────────────────────►  HDFS /lake/bronze
-        (lots mensuels)                          GeoJSON brut + _SUCCESS
-                                                         │
-                                                         ▼  Spark + Delta
-                                                  HDFS /lake/silver/events
-                                        versions, identités résolues, magnitudes qualifiées
-                                                         │
-                                                         ▼  Spark
-                                                  HDFS /lake/gold
-                        revision_history · identity_history · alert_reliability
-                        magnitude_scales · review_lag
-                                                         │
-                                                         ▼
-                                              Carnet Pandas (Parquet direct)
+  ┌ SOURCE 1 ─ all_hour.geojson ──► Kafka ──► Spark Structured Streaming ─┐
+  │            (chaque minute)      quakes_live                           │
+  │                                                                       ▼
+  ├ SOURCE 2 ─ FDSN query ──────────────────────────────►  HDFS /lake/bronze
+  │            (lots mensuels, M≥4)                        GeoJSON brut + _SUCCESS
+  │                                                                       │
+  └ SOURCE 3 ─ FDSN includesuperseded=true ───────────────────────────────┤
+               (historique des versions, lots de 100)                     │
+                                                                          ▼  Spark + Delta
+                                            HDFS /lake/silver/events · event_versions
+                                    versions, identités résolues, magnitudes qualifiées
+                                                                          │
+                                                                          ▼  Spark
+                                                              HDFS /lake/gold
+              revision_history · identity_history · alert_reliability · magnitude_scales
+              review_lag · magnitude_revision · alert_curve · lake_diff · human_witness
+                                                                          │
+                              ┌───────────────────────────┬───────────────┤
+                              ▼                           ▼               ▼
+                   Carnet Pandas          Modèle MLlib GBT      Tableau de bord
+                  (Parquet direct)      /lake/models/*          temps réel + globe
+                                        exporté en JSON             (Docker)
 ```
 
-**Orchestration.** Trois DAG, chaînés par **Datasets Airflow** et non par
-capteurs : le DAG Bronze déclare produire un Dataset, le DAG Silver est planifié
-dessus, le DAG Gold sur celui de Silver. Une seule impulsion cascade jusqu'au
-bout.
+**Orchestration.** Quatre DAG, chaînés par **Datasets Airflow** et non par
+capteurs : chaque DAG déclare le Dataset qu'il produit, le suivant est planifié
+dessus. Une seule impulsion cascade jusqu'au bout.
 
 ```
 bronze_catalog_ingestion  ──►  silver_events  ──►  gold_insights
                         Dataset            Dataset
+
+versions_pipeline : recolte ─► silver ─► dataset ─► courbe ─► modele ─► export
 ```
+
+Le DAG `versions_pipeline` est déclenché à la main et non planifié : sa première
+tâche appelle l'API USGS une fois par séisme, soit **près de deux heures de
+réseau**. Le planifier reviendrait à marteler un service public gratuit.
 
 ## Le rejeu, prouvé et non affirmé
 
@@ -166,9 +220,9 @@ marquée `_SUCCESS`.
 docker compose up -d
 ```
 
-Neuf services : HDFS (namenode + datanode), Kafka en KRaft, Spark standalone
+Onze services : HDFS (namenode + datanode), Kafka en KRaft, Spark standalone
 (master + worker), Airflow avec Postgres, le producteur USGS, le job de
-streaming et le carnet.
+streaming, le carnet et le **tableau de bord temps réel**.
 
 Le flux temps réel démarre seul et alimente Bronze en continu.
 
@@ -214,9 +268,9 @@ HTTP. Le travail lourd est chez Spark.
 ## Structure
 
 ```
-docker-compose.yml        neuf services, une commande
-Makefile                  make bronze / replay / hdfs / clean
-DECISIONS.md              14 arbitrages : le choix, l'alternative, la raison
+docker-compose.yml        onze services, une commande
+Makefile                  make bronze / versions / chain / site / replay / clean
+DECISIONS.md              les arbitrages : le choix, l'alternative, la raison
 scripts/prove_replay.sh   la preuve de rejeu, rejouable
 dags/
   lake_datasets.py        les Datasets qui chaînent les couches

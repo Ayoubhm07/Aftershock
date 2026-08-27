@@ -71,7 +71,7 @@ services:
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      CLUSTER_ID: 7Qm2xVfLTBСqXn9pLwKdRA
+      CLUSTER_ID: 9wTsbsHDSOq4m8JGqRhNbA
       KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
@@ -176,6 +176,32 @@ services:
       start_period: 90s
     restart: always
 
+  dashboard:
+    image: seisme-app:latest
+    container_name: seisme-dashboard
+    hostname: dashboard
+    depends_on:
+      kafka:
+        condition: service_healthy
+      namenode:
+        condition: service_healthy
+    environment:
+      <<: *lake-env
+      DASHBOARD_PORT: "8000"
+    command: ["python", "-m", "src.web.server"]
+    volumes:
+      - ./site:/opt/app/site:ro
+      - ./src:/opt/app/src:ro
+    ports:
+      - "${DASHBOARD_PORT:-8500}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health',timeout=3).status==200 else 1)"]
+      interval: 15s
+      timeout: 8s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
   postgres:
     image: postgres:16-alpine
     container_name: seisme-postgres
@@ -211,6 +237,12 @@ services:
       AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: "2"
       AIRFLOW__SCHEDULER__CATCHUP_BY_DEFAULT: "false"
       AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+      # La machine porte HDFS, Kafka, Spark et un job de streaming permanent.
+      # Le delai par defaut de 120 s ne suffit pas au demarrage de gunicorn
+      # sous cette charge : le webserver s'arretait seul, en boucle.
+      AIRFLOW__WEBSERVER__WEB_SERVER_MASTER_TIMEOUT: "300"
+      AIRFLOW__WEBSERVER__WEB_SERVER_WORKER_TIMEOUT: "300"
+      AIRFLOW__WEBSERVER__WORKERS: "2"
       AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.session
       _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_USER:-admin}
       _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_PASSWORD:-admin}
@@ -227,10 +259,21 @@ services:
     command:
       - |
         set -e
+        # Un arret brutal laisse un fichier PID ; le webserver refuse alors de
+        # demarrer, le scheduler continue, et le conteneur reste Up sans
+        # interface. Le retirer est la premiere chose a faire.
+        rm -f "$${AIRFLOW_HOME}/airflow-webserver.pid"
         airflow db migrate
         airflow users create           --username "$${_AIRFLOW_WWW_USER_USERNAME}"           --password "$${_AIRFLOW_WWW_USER_PASSWORD}"           --firstname seisme --lastname lake --role Admin --email admin@local           2>/dev/null || true
+        # Les deux processus en arriere-plan et 'wait -n' : si l'un des deux
+        # meurt, le conteneur sort et la politique de redemarrage s'applique.
+        # Avec 'exec scheduler', une mort du webserver passait inapercue.
         airflow webserver --port 8080 &
-        exec airflow scheduler
+        airflow scheduler &
+        wait -n
+        echo "un composant Airflow s'est arrete, sortie du conteneur" >&2
+        exit 1
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
       interval: 10s
