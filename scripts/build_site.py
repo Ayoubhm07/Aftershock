@@ -15,8 +15,18 @@ MODEL_PATH = f"{GOLD_ROOT}/model_export/trees.json"
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "site" / "app.template.html"
 APP = ROOT / "site" / "app.js"
-THREE = ROOT / "site" / "vendor" / "three.min.js"
+VENDOR = ROOT / "site" / "vendor"
 OUTPUT = ROOT / "site" / "aftershock.html"
+
+# Les scripts sont inlines dans cet ordre : la CSP d'un artefact publie bloque
+# tout hote externe, donc aucune balise src ne peut sortir de la page.
+SCRIPTS = (
+    ("/*__THREE__*/", "three.min.js", "three.js", False),
+    ("/*__REACT__*/", "react.min.js", "React", True),
+    ("/*__REACTDOM__*/", "react-dom.min.js", "React DOM", True),
+    ("/*__HTM__*/", "htm.min.js", "htm", True),
+)
+LAND_FILE = VENDOR / "land.compact.json"
 
 
 class BuildError(RuntimeError):
@@ -66,12 +76,29 @@ def main() -> int:
     bundle = fetch(fs, BUNDLE_PATH, "donnees Gold")
     model = fetch(fs, MODEL_PATH, "modele exporte")
 
-    three = THREE.read_text(encoding="utf-8") if THREE.exists() else ""
-    if not three:
-        print("  three.js               absent, le globe sera desactive",
-              file=sys.stderr)
+    if LAND_FILE.exists():
+        land = LAND_FILE.read_text(encoding="utf-8")
+        print(f"  cotes du monde         {len(land) / 1024:8.1f} Ko")
     else:
-        print(f"  three.js               {len(three) / 1024:8.1f} Ko")
+        land = "null"
+        print("  cotes du monde         absentes, globe sans continents",
+              file=sys.stderr)
+
+    libraries: dict[str, str] = {}
+    for marker, filename, label, required in SCRIPTS:
+        source = VENDOR / filename
+        if not source.exists():
+            if required:
+                print(f"  {label:22s} ABSENT — la page ne demarrera pas",
+                      file=sys.stderr)
+                return 1
+            print(f"  {label:22s} absent, la vue concernee sera desactivee",
+                  file=sys.stderr)
+            libraries[marker] = ""
+            continue
+        content = source.read_text(encoding="utf-8")
+        libraries[marker] = content
+        print(f"  {label:22s} {len(content) / 1024:8.1f} Ko")
 
     application = APP.read_text(encoding="utf-8")
     print(f"  application            {len(application) / 1024:8.1f} Ko")
@@ -80,7 +107,9 @@ def main() -> int:
         page = TEMPLATE.read_text(encoding="utf-8")
         page = inject(page, "/*__BUNDLE__*/", "/*__BUNDLE_END__*/", bundle)
         page = inject(page, "/*__MODEL__*/", "/*__MODEL_END__*/", model)
-        page = inject(page, "/*__THREE__*/", None, three)
+        page = inject(page, "/*__LAND__*/", "/*__LAND_END__*/", land)
+        for marker, _, _, _ in SCRIPTS:
+            page = inject(page, marker, None, libraries[marker])
         page = inject(page, "/*__APP__*/", None, application)
     except BuildError as error:
         print(error, file=sys.stderr)

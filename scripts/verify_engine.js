@@ -58,6 +58,17 @@ if (!witnesses.length) {
   process.exit(1);
 }
 
+// La longueur du vecteur assemble DOIT egaler le nombre de variables que
+// MLlib a vues. Un ecart decale les indices de coupe des arbres : les
+// predictions restent plausibles et deviennent fausses sans rien signaler.
+if (engine.coherent === false) {
+  console.error("-".repeat(66));
+  console.error(`  ECHEC : vecteur de ${engine.largeur} valeurs pour `
+    + `${engine.largeur_attendue} variables attendues.`);
+  console.error("  Les indices de variables des arbres sont decales.");
+  process.exit(1);
+}
+
 let agree = 0;
 const divergent = [];
 let widest = 0;
@@ -78,7 +89,8 @@ for (const witness of witnesses) {
 console.log("-".repeat(66));
 console.log(`  arbres charges        : ${FOREST.foret.arbres.length}`);
 console.log(`  variables assemblees  : ${FOREST.foret.nombre_de_variables}`);
-console.log(`  longueur du vecteur   : ${engine.score(witnesses[0]).taille}`);
+console.log(`  longueur du vecteur   : ${engine.score(witnesses[0]).taille}`
+  + `   (coherent: ${engine.coherent})`);
 console.log(`  temoins compares      : ${witnesses.length}`);
 console.log(`  decisions identiques  : ${agree}/${witnesses.length}`);
 console.log(`  ecart maximal         : ${widest}`);

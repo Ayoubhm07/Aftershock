@@ -131,6 +131,15 @@ class Tap:
             "updated": properties.get("updated"),
             "felt": properties.get("felt"),
             "tsunami": properties.get("tsunami"),
+            # Variables que le modele attend a l'instant de l'alerte. Le flux
+            # les publie a cote de la magnitude : les jeter ici rendrait tout
+            # scoring impossible cote navigateur.
+            "network": properties.get("net"),
+            "station_count": properties.get("nst"),
+            "azimuthal_gap": properties.get("gap"),
+            "minimum_distance": properties.get("dmin"),
+            "standard_error": properties.get("rms"),
+            "significance": properties.get("sig"),
             "longitude": geometry[0] if len(geometry) > 0 else None,
             "latitude": geometry[1] if len(geometry) > 1 else None,
             "depth": geometry[2] if len(geometry) > 2 else None,
