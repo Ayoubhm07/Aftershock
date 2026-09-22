@@ -1,89 +1,88 @@
-# AFTERSHOCK — le séisme qui rétrécit
+# AFTERSHOCK — the shrinking earthquake
 
-Datalake **Bronze → Silver → Gold** sur HDFS, alimenté par **trois** sources
-USGS — un flux temps réel via Kafka, un catalogue historique en lots, et
-l'historique des versions supersédées — orchestré par Airflow, prolongé par un
-modèle MLlib et une application web autonome.
+A **Bronze → Silver → Gold** data lake on HDFS, fed by **three** USGS sources —
+a real-time feed through Kafka, a historical catalog loaded in batches, and the
+history of superseded versions — orchestrated by Airflow, extended by an MLlib
+model and a standalone web application.
 
 ```bash
 docker compose up -d
-make bronze      # les lots mensuels du catalogue
-make versions    # l'historique des versions — long, ne rien lancer en parallèle
-make chain       # Silver -> Gold -> modèle -> bundle de restitution
-make site        # injecte le bundle dans site/aftershock.html
+make bronze      # the monthly catalog batches
+make versions    # the version history — long, run nothing else in parallel
+make chain       # Silver -> Gold -> model -> reporting bundle
+make site        # injects the bundle into site/aftershock.html
 ```
 
-**http://localhost:8889** pour le carnet · `site/aftershock.html` pour
-l'application.
+**http://localhost:8889** for the notebook · `site/aftershock.html` for the
+application.
 
 ---
 
-## Le problème métier
+## The business problem
 
-Quand un séisme se produit, l'USGS publie une magnitude calculée
-**automatiquement**, à partir des premières stations qui ont enregistré la
-secousse. Cette valeur déclenche des alertes tsunami, des évacuations, des
-mobilisations de secours.
+When an earthquake occurs, the USGS publishes a magnitude computed
+**automatically** from the first stations that recorded the shaking. That value
+triggers tsunami alerts, evacuations and rescue deployments.
 
-Des heures — souvent des semaines — plus tard, un sismologue **révise** cette
-magnitude avec l'ensemble des enregistrements disponibles. Elle change. Une M3,60
-annoncée à Takotna, en Alaska, est devenue **M5,20** ; une M6,30 au large du
-Kamtchatka est retombée à **M5,30**.
+Hours — often weeks — later, a seismologist **reviews** that magnitude using all
+the available recordings. It changes. An M3.60 announced at Takotna, Alaska,
+became **M5.20**; an M6.30 off Kamchatka fell back to **M5.30**.
 
-Ce projet mesure cet écart, explique d'où il vient, et en tire un seuil d'alerte
-défendable : à partir de quelle magnitude annoncée faut-il déclencher, en
-acceptant quel taux de fausse alerte ?
+This project measures that gap, explains where it comes from, and derives a
+defensible alert threshold from it: from which announced magnitude should an
+alert be triggered, accepting which false-alarm rate?
 
-### Une correction que nous devons au jury
+### A correction we owe the jury
 
-Une version antérieure de ce README affirmait que « personne n'archive l'écart,
-parce que chaque version écrase la précédente ». **C'est faux, et la
-vérification nous l'a montré.** Le paramètre `includesuperseded=true` de
-l'endpoint FDSN ouvre l'historique complet :
+An earlier version of this README claimed that "nobody archives the gap,
+because each version overwrites the previous one". **That is false, and
+verification showed us so.** The `includesuperseded=true` parameter of the FDSN
+endpoint opens the full history:
 
-| Requête sur `us7000pwpu` | Versions d'origine | Poids |
+| Query on `us7000pwpu` | Origin versions | Size |
 |---|---|---|
-| `query?eventid=X&format=geojson` | 3 | 58 Ko |
-| `query?eventid=X&includesuperseded=true` | **10** | **309 Ko** |
+| `query?eventid=X&format=geojson` | 3 | 58 KB |
+| `query?eventid=X&includesuperseded=true` | **10** | **309 KB** |
 
-Ce qui reste vrai est plus solide : l'archive **n'est consultable qu'un séisme à
-la fois, en connaissant son identifiant à l'avance, au prix de 309 Ko**. Elle
-n'est ni dans les flux temps réel, ni dans l'endpoint de masse, ni jointe à quoi
-que ce soit. Elle est **archivée mais inexploitable**.
+What remains true is more solid: the archive **can only be queried one
+earthquake at a time, knowing its identifier in advance, at a cost of 309 KB**.
+It is not in the real-time feeds, not in the bulk endpoint, and not joined to
+anything. It is **archived but unusable**.
 
-C'est ce qu'un lac corrige — et c'est cette troisième source qui rend le modèle
+That is what a lake fixes — and it is this third source that makes the model
 possible.
 
-## Ce que le pipeline établit
+## What the pipeline establishes
 
-Sur **17 526 séismes** du catalogue 2025, **2 128** dont l'historique complet
-des versions a été récolté, et un flux temps réel accumulé en continu :
+Over **17,526 earthquakes** in the 2025 catalog, **2,128** whose full version
+history was harvested, and a real-time feed accumulated continuously:
 
-| Constat | Chiffre mesuré |
+| Finding | Measured figure |
 |---|---|
-| Versions successives archivées | **7 939** pour 2 128 séismes |
-| Séismes dont la magnitude bouge entre deux versions | **735 (34,5 %)** |
-| Écart maximal observé | **+1,60** (M3,60 → M5,20, Takotna, Alaska) |
-| Délai médian de la première solution archivée | **17,8 minutes** |
-| Délai médian avant stabilisation de la fiche | **75,1 jours** |
-| Séismes portant la trace d'une solution automatique remplacée | **1 151 (6,6 %)** |
-| … dont l'identifiant retenu a changé depuis | **1 151, soit la totalité** |
-| Part de l'échelle `mb`, qui sature à 6,5 | **89 %** des séismes M≥4 |
+| Successive versions archived | **7,939** for 2,128 earthquakes |
+| Earthquakes whose magnitude moves between two versions | **735 (34.5%)** |
+| Largest gap observed | **+1.60** (M3.60 → M5.20, Takotna, Alaska) |
+| Median delay of the first archived solution | **17.8 minutes** |
+| Median delay before the record stabilises | **75.1 days** |
+| Earthquakes carrying the trace of a replaced automatic solution | **1,151 (6.6%)** |
+| … whose retained identifier has changed since | **1,151, i.e. all of them** |
+| Share of the `mb` scale, which saturates at 6.5 | **89%** of M≥4 earthquakes |
 
-### Deux délais qui ne mesurent pas la même chose
+### Two delays that do not measure the same thing
 
-Une version antérieure de ce README annonçait « 1,6 à 3,5 minutes » pour la
-publication d'une solution automatique. Ce chiffre venait de la table
-`review_lag`, qui mesure l'écart entre l'instant du séisme et le champ `updated`
-des fiches vues dans le flux — donc **la fraîcheur d'une fiche déjà publiée**.
+An earlier version of this README announced "1.6 to 3.5 minutes" for the
+publication of an automatic solution. That figure came from the `review_lag`
+table, which measures the gap between the moment of the earthquake and the
+`updated` field of the records seen in the feed — in other words **the freshness
+of a record that has already been published**.
 
-La récolte de l'historique donne une autre mesure, plus exigeante : l'écart
-entre le séisme et le **premier produit `origin` que l'USGS a conservé**, soit
-**17,8 minutes de médiane** (min 2,9 · max 66,9).
+Harvesting the history gives another, more demanding measure: the gap between
+the earthquake and the **first `origin` product the USGS kept**, i.e. a
+**17.8-minute median** (min 2.9 · max 66.9).
 
-Les deux sont exacts et ne se contredisent pas ; ils ne répondent pas à la même
-question. Le second est celui qui compte pour l'alerte, et c'est celui que nous
-retenons désormais.
+Both are accurate and do not contradict each other; they do not answer the same
+question. The second is the one that matters for alerting, and it is the one we
+now retain.
 
 ---
 
@@ -91,16 +90,16 @@ retenons désormais.
 
 ```
   ┌ SOURCE 1 ─ all_hour.geojson ──► Kafka ──► Spark Structured Streaming ─┐
-  │            (chaque minute)      quakes_live                           │
+  │            (every minute)       quakes_live                           │
   │                                                                       ▼
   ├ SOURCE 2 ─ FDSN query ──────────────────────────────►  HDFS /lake/bronze
-  │            (lots mensuels, M≥4)                        GeoJSON brut + _SUCCESS
+  │            (monthly batches, M≥4)                      raw GeoJSON + _SUCCESS
   │                                                                       │
   └ SOURCE 3 ─ FDSN includesuperseded=true ───────────────────────────────┤
-               (historique des versions, lots de 100)                     │
+               (version history, batches of 100)                          │
                                                                           ▼  Spark + Delta
                                             HDFS /lake/silver/events · event_versions
-                                    versions, identités résolues, magnitudes qualifiées
+                                    versions, resolved identities, qualified magnitudes
                                                                           │
                                                                           ▼  Spark
                                                               HDFS /lake/gold
@@ -109,189 +108,191 @@ retenons désormais.
                                                                           │
                               ┌───────────────────────────┬───────────────┤
                               ▼                           ▼               ▼
-                   Carnet Pandas          Modèle MLlib GBT      Tableau de bord
-                  (Parquet direct)      /lake/models/*          temps réel + globe
-                                        exporté en JSON             (Docker)
+                   Pandas notebook        MLlib GBT model       Real-time
+                  (direct Parquet)      /lake/models/*          dashboard + globe
+                                        exported as JSON            (Docker)
 ```
 
-**Orchestration.** Quatre DAG, chaînés par **Datasets Airflow** et non par
-capteurs : chaque DAG déclare le Dataset qu'il produit, le suivant est planifié
-dessus. Une seule impulsion cascade jusqu'au bout.
+**Orchestration.** Four DAGs, chained by **Airflow Datasets** rather than by
+sensors: each DAG declares the Dataset it produces, and the next one is
+scheduled on it. A single trigger cascades all the way through.
 
 ```
 bronze_catalog_ingestion  ──►  silver_events  ──►  gold_insights
                         Dataset            Dataset
 
-versions_pipeline : recolte ─► silver ─► dataset ─► courbe ─► modele ─► export
+versions_pipeline : harvest ─► silver ─► dataset ─► curve ─► model ─► export
 ```
 
-Le DAG `versions_pipeline` est déclenché à la main et non planifié : sa première
-tâche appelle l'API USGS une fois par séisme, soit **près de deux heures de
-réseau**. Le planifier reviendrait à marteler un service public gratuit.
+The `versions_pipeline` DAG is triggered manually, not scheduled: its first task
+calls the USGS API once per earthquake, i.e. **nearly two hours of network
+time**. Scheduling it would mean hammering a free public service.
 
-## Le rejeu, prouvé et non affirmé
+## Replay, proven rather than claimed
 
-L'énoncé souligne cette exigence de deux points d'exclamation. Une phrase dans un
-README ne vaut rien ; une manipulation qu'un correcteur rejoue vaut tout.
+The assignment stresses this requirement with two exclamation marks. A sentence
+in a README is worth nothing; a procedure that a grader can replay is worth
+everything.
 
 ```bash
 make replay
 ```
 
-Le script fait table rase, déclenche le DAG, **tue Airflow en plein vol**, le
-redémarre, relance, puis rejoue une fois de plus sur un lac déjà complet.
+The script wipes everything, triggers the DAG, **kills Airflow mid-run**,
+restarts it, relaunches, then replays once more on an already complete lake.
 
-| Étape | Marqueurs | Fichiers |
+| Step | Markers | Files |
 |---|---|---|
-| après table rase | 0 | 0 |
-| **après arrêt brutal** | **5** | 5 |
-| après relance | **12** | 12 |
-| après second rejeu | **12** | 12 |
+| after wipe | 0 | 0 |
+| **after hard kill** | **5** | 5 |
+| after relaunch | **12** | 12 |
+| after second replay | **12** | 12 |
 
-**12 462 374 octets avant et après le rejeu, à l'octet près.**
+**12,462,374 bytes before and after the replay, to the byte.**
 
 ---
 
-## Les pièges du jeu de données
+## The dataset's traps
 
-### 1. L'identité d'un séisme change au fil du temps
+### 1. An earthquake's identity changes over time
 
-C'est le piège central, et il n'est pas celui qu'on croit.
+This is the central trap, and it is not the one you would expect.
 
 ```
 us6000thra   ids = ['usauto6000thra', 'us6000thra']   sources = ,usauto,us,
 ```
 
-`usauto` est la solution automatique, `us` la solution révisée. **Même séisme,
-identifiants différents.** Joindre le flux et le catalogue sur `id` ferait
-disparaître la révision : le séisme apparaîtrait comme deux événements distincts,
-une alerte automatique évaporée et un événement révisé surgi de nulle part.
+`usauto` is the automatic solution, `us` the reviewed solution. **Same
+earthquake, different identifiers.** Joining the feed and the catalog on `id`
+would make the revision disappear: the earthquake would appear as two distinct
+events, an automatic alert that evaporated and a reviewed event that came out of
+nowhere.
 
-**1 151 séismes sur 17 536** sont concernés — et pour tous, l'identifiant retenu
-a changé.
+**1,151 earthquakes out of 17,536** are affected — and for all of them, the
+retained identifier has changed.
 
-La clé de jointure est donc **l'intersection des ensembles `ids`**, pas `id`.
+The join key is therefore **the intersection of the `ids` sets**, not `id`.
 
-> Le brief initial annonçait un autre piège : plusieurs réseaux déclarant le
-> même séisme séparément dans un même instantané. **Vérification faite, ça
-> n'existe pas** : sur 252 événements du flux, aucun alias n'apparaît comme
-> événement distinct, l'USGS fusionne déjà côté serveur.
+> The initial brief announced another trap: several networks reporting the same
+> earthquake separately in the same snapshot. **Once verified, it does not
+> exist**: across 252 events in the feed, no alias appears as a distinct event;
+> the USGS already merges them server-side.
 
-### 2. Six échelles de magnitude qui ne mesurent pas la même chose
+### 2. Six magnitude scales that do not measure the same thing
 
-| Famille | Échelle | Séismes | Sature à | Magnitude max observée |
+| Family | Scale | Earthquakes | Saturates at | Max magnitude observed |
 |---|---|---|---|---|
-| ondes de volume | `mb` | 15 614 | **6,5** | 6,3 |
-| moment | `mww` | 1 437 | — | **8,8** |
-| moment | `mwr` | 347 | — | 5,2 |
-| locale | `ml` | 74 | 6,5 | 5,85 |
-| durée | `md` | 30 | 5,0 | 4,55 |
+| body waves | `mb` | 15,614 | **6.5** | 6.3 |
+| moment | `mww` | 1,437 | — | **8.8** |
+| moment | `mwr` | 347 | — | 5.2 |
+| local | `ml` | 74 | 6.5 | 5.85 |
+| duration | `md` | 30 | 5.0 | 4.55 |
 
-`mb` couvre 89 % des séismes mais **sature vers 6,5** : au-delà, elle
-sous-estime. `mww`, qui ne sature pas, porte les magnitudes extrêmes.
+`mb` covers 89% of earthquakes but **saturates around 6.5**: above that, it
+underestimates. `mww`, which does not saturate, carries the extreme magnitudes.
 
-**Nous ne convertissons pas.** Les formules entre échelles sont régionales et
-empiriques — une relation calibrée en Californie ne vaut pas en Indonésie.
-Appliquer une formule universelle produirait des nombres d'apparence rigoureuse
-et sans fondement. Silver **qualifie** chaque mesure (famille, seuil de
-saturation) au lieu de la transformer, ce qui rend la règle de comparaison
-énonçable.
+**We do not convert.** The formulas between scales are regional and empirical —
+a relation calibrated in California does not hold in Indonesia. Applying a
+universal formula would produce numbers that look rigorous and have no basis.
+Silver **qualifies** each measurement (family, saturation threshold) instead of
+transforming it, which makes the comparison rule statable.
 
-### 3. Trois états, pas deux
+### 3. Three states, not two
 
-Un événement peut être `automatic`, `reviewed` — ou **retiré** du catalogue
-(faux positif, tir de carrière). Le flux l'a publié, le catalogue ne le contient
-plus.
+An event can be `automatic`, `reviewed` — or **removed** from the catalog (false
+positive, quarry blast). The feed published it; the catalog no longer contains
+it.
 
-### 4. `time` n'est pas `updated`
+### 4. `time` is not `updated`
 
-`time` est l'instant du séisme, `updated` celui de la dernière modification de
-la fiche. **Bronze est partitionné sur la date d'ingestion**, immuable par
-construction : un séisme révisé ne peut pas retomber dans une partition déjà
-marquée `_SUCCESS`.
+`time` is the moment of the earthquake, `updated` the moment of the record's last
+modification. **Bronze is partitioned on the ingestion date**, immutable by
+construction: a reviewed earthquake cannot fall back into a partition already
+marked `_SUCCESS`.
 
 ---
 
-## Démarrer
+## Getting started
 
-### 1. Lancer la pile
+### 1. Start the stack
 
 ```bash
 docker compose up -d
 ```
 
-Onze services : HDFS (namenode + datanode), Kafka en KRaft, Spark standalone
-(master + worker), Airflow avec Postgres, le producteur USGS, le job de
-streaming, le carnet et le **tableau de bord temps réel**.
+Eleven services: HDFS (namenode + datanode), Kafka in KRaft mode, Spark
+standalone (master + worker), Airflow with Postgres, the USGS producer, the
+streaming job, the notebook and the **real-time dashboard**.
 
-Le flux temps réel démarre seul et alimente Bronze en continu.
+The real-time feed starts on its own and feeds Bronze continuously.
 
-### 2. Déclencher la chaîne batch
+### 2. Trigger the batch chain
 
 ```bash
 make bronze
 ```
 
-Le DAG Bronze ingère les lots mensuels manquants, puis réveille Silver, qui
-réveille Gold — par Datasets, sans intervention.
+The Bronze DAG ingests the missing monthly batches, then wakes Silver, which
+wakes Gold — through Datasets, with no intervention.
 
-### 3. Consulter
+### 3. Browse
 
-| Service | URL | Identifiants |
+| Service | URL | Credentials |
 |---|---|---|
-| **Carnet de restitution** | http://localhost:8889 | — |
+| **Reporting notebook** | http://localhost:8889 | — |
 | Airflow | http://localhost:8099 | `admin` / `admin` |
 | HDFS | http://localhost:9871 | — |
 | Spark master | http://localhost:8097 | — |
 
-### 4. Arrêter
+### 4. Stop
 
 ```bash
-make down       # arrêt    |    make clean : arrêt + purge des volumes
+make down       # stop    |    make clean : stop + purge volumes
 ```
 
 ---
 
-## Empreinte mesurée
+## Measured footprint
 
-| Ressource | Mesure |
+| Resource | Measurement |
 |---|---|
-| Mémoire, pile complète au repos | **2,78 Gio** sur 11,37 alloués à Docker |
-| Bronze | 11,9 Mo catalogue + flux en croissance |
-| Silver | 4,7 Mo en Delta |
-| Images | Spark 2,65 Go · Airflow 2,13 Go · app 223 Mo · carnet |
+| Memory, full stack at rest | **2.78 GiB** out of 11.37 allocated to Docker |
+| Bronze | 11.9 MB catalog + growing feed |
+| Silver | 4.7 MB in Delta |
+| Images | Spark 2.65 GB · Airflow 2.13 GB · app 223 MB · notebook |
 
-Airflow tourne en **LocalExecutor sans Celery ni Redis** : rien dans l'énoncé ne
-réclame d'exécution distribuée pour trois DAG dont les tâches sont des appels
-HTTP. Le travail lourd est chez Spark.
+Airflow runs with the **LocalExecutor, without Celery or Redis**: nothing in the
+assignment calls for distributed execution for three DAGs whose tasks are HTTP
+calls. The heavy work is done by Spark.
 
 ## Structure
 
 ```
-docker-compose.yml        onze services, une commande
+docker-compose.yml        eleven services, one command
 Makefile                  make bronze / versions / chain / site / replay / clean
-DECISIONS.md              les arbitrages : le choix, l'alternative, la raison
-scripts/prove_replay.sh   la preuve de rejeu, rejouable
+DECISIONS.md              the trade-offs: the choice, the alternative, the reason
+scripts/prove_replay.sh   the replay proof, replayable
 dags/
-  lake_datasets.py        les Datasets qui chaînent les couches
+  lake_datasets.py        the Datasets that chain the layers
   bronze_catalog_ingestion.py
   silver_events.py
   gold_insights.py
 src/
-  common/                 config, WebHDFS, client USGS, session Spark, lecteur Gold
-  ingest/                 producteur Kafka, stream vers Bronze, batch vers Bronze
-  silver/                 échelles de magnitude, modèle unifié, versionnement Delta
-  gold/                   les cinq tables de restitution
-notebooks/insights.ipynb  le carnet, exécuté avec ses figures
+  common/                 config, WebHDFS, USGS client, Spark session, Gold reader
+  ingest/                 Kafka producer, stream to Bronze, batch to Bronze
+  silver/                 magnitude scales, unified model, Delta versioning
+  gold/                   the five reporting tables
+notebooks/insights.ipynb  the notebook, executed with its figures
 ```
 
-## Ce que ces données ne permettent pas encore
+## What this data does not allow yet
 
-Le **seuil d'alerte optimal** exige d'observer le même séisme en version
-automatique *puis* en version révisée. Seul le flux accumulé le permet, et il
-tourne depuis peu : la table `alert_reliability` existe, sa méthode est écrite,
-son échantillon grandit à chaque heure d'écoute.
+The **optimal alert threshold** requires observing the same earthquake in its
+automatic version *and then* its reviewed version. Only the accumulated feed
+allows this, and it has not been running for long: the `alert_reliability` table
+exists, its method is written, and its sample grows with every hour of
+listening.
 
-C'est une limite du temps d'observation, pas de l'architecture. Le carnet
-l'affiche explicitement plutôt que de publier un taux calculé sur deux
-événements — ce ne serait pas un résultat, ce serait une illusion de résultat.
+This is a limit of observation time, not of the architecture. The notebook
+shows it explicitly rather than publishing a rate computed on two events —
+that would not be a result, it would be the illusion of a result.

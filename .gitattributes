@@ -1,0 +1,5 @@
+# site/aftershock.html is built by scripts/build_site.py (make site): it inlines
+# three.js, React, React DOM, htm, the Gold bundle and site/app.js into
+# site/app.template.html. It is tracked on purpose so the report opens without
+# Docker, but it is build output, not source.
+site/aftershock.html linguist-generated=true
